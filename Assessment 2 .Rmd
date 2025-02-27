@@ -1,0 +1,80 @@
+---
+title: "Assessment 2 for SRS"
+author: "Team 7"
+date: "2025-02-27"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Try**
+
+```{r load data}
+# load the data
+setwd("~/Desktop/SRS/Assessment2")
+ourdata <- read.csv("finalbis.csv", header = TRUE)
+head(ourdata)
+```
+
+```{r dist of added value}
+# See the distribution of added value
+y <- ourdata$added_value
+hist(y,main="Distribution of Added Value", xlab="Added Value", col="grey", probability = TRUE)
+lines(density(y), col = "red", lwd = 2)
+print(c(mean(y), sd(y)))
+```
+
+Clean the data, delete all NAs and unrelated rows:
+```{r Data clean}
+# Delete unrelated column
+newdata <- ourdata[, -c(1,2,4,18,19,20,21,22,23,24,25,26,27)]
+# Delete Na rows
+newdata$continuation[newdata$continuation == "n/a"] <- NA
+newdata <- newdata[!is.na(newdata$satisfied_teaching) & !is.na(newdata$continuation), ]
+newdata$continuation <- as.numeric(newdata$continuation)
+newdata$INSTITUTION_CODE <- as.factor(newdata$INSTITUTION_CODE)
+```
+
+plot the data out to see whether it exists multilinearity.
+```{r}
+plot(newdata)
+```
+
+Try to fit the linear modal for all variable:
+```{r Linear Model}
+names(newdata)
+model1 <- lm(added_value~.- INSTITUTION_CODE, data = newdata)
+step(model1)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
