@@ -28,6 +28,8 @@ print(c(mean(y), sd(y)))
 
 Clean the data, delete all NAs and unrelated rows:
 ```{r Data clean}
+#install.packages("dplyr")
+library(dplyr)
 # Delete unrelated column
 newdata <- ourdata[, -c(1,2,4,18,19,20,21,22,23,24,25,26,27)]
 # Delete Na rows
@@ -35,31 +37,211 @@ newdata$continuation[newdata$continuation == "n/a"] <- NA
 newdata <- newdata[!is.na(newdata$satisfied_teaching) & !is.na(newdata$continuation), ]
 newdata$continuation <- as.numeric(newdata$continuation)
 newdata$INSTITUTION_CODE <- as.factor(newdata$INSTITUTION_CODE)
-```
 
-plot the data out to see whether it exists multilinearity.
-```{r}
-plot(newdata)
+newdata <- newdata %>%
+  mutate(
+    ethnic_group = case_when(
+      White.ethnic.group == pmax(White.ethnic.group, Black.ethnic.group, Asian.ethnic.group, Mixed.ethnic.group, Other.ethnic.group) ~ "White",
+      Black.ethnic.group == pmax(White.ethnic.group, Black.ethnic.group, Asian.ethnic.group, Mixed.ethnic.group, Other.ethnic.group) ~ "Black",
+      Asian.ethnic.group == pmax(White.ethnic.group, Black.ethnic.group, Asian.ethnic.group, Mixed.ethnic.group, Other.ethnic.group) ~ "Asian",
+      Mixed.ethnic.group == pmax(White.ethnic.group, Black.ethnic.group, Asian.ethnic.group, Mixed.ethnic.group, Other.ethnic.group) ~ "Mixed",
+      Other.ethnic.group == pmax(White.ethnic.group, Black.ethnic.group, Asian.ethnic.group, Mixed.ethnic.group, Other.ethnic.group) ~ "Other",
+      TRUE ~ "Unknown"
+    )
+  )
+newdata <- newdata %>%
+  mutate(
+    sex = case_when(
+      Men == pmax(Men, Women) ~ "Men",
+      Women == pmax(Men, Women) ~ "Women",
+      TRUE ~ "Unknown"
+    )
+  )
+newdata$ethnic_group <- as.factor(newdata$ethnic_group)
+
+newdata <- newdata %>%
+  select(-White.ethnic.group, -Black.ethnic.group, -Asian.ethnic.group, -Mixed.ethnic.group, -Other.ethnic.group, -Men, -Women)
 ```
 
 Try to fit the linear modal for all variable:
 ```{r Linear Model}
 names(newdata)
-model1 <- lm(added_value~.- INSTITUTION_CODE, data = newdata)
-step(model1)
+```
+
+```{r}
+library(car)
+vif(model1)
+```
+```{r}
+new_model <- lm(career_after_15_month ~ . - INSTITUTION_CODE, data = newdata)
+vif(new_model)
+step(new_model)
 ```
 
 
+```{r}
+final.model <- lm(formula = career_after_15_month ~ satisfied_teaching + satisfied_feedback + 
+    students_staff_ratio + avg_entry_tariff + added_value + continuation + 
+    Total, data = newdata)
+summary(final.model)
+plot(final.model)
+```
 
+Bayesian:
+```{r}
+library(rjags)
+```
 
+```{r}
+model_string <- "
+model {
+  # Prior for the precision
+  tau~dgamma(a, b)
+  
+  # Compute the variance
+  sigma2 = 1/tau
 
+  # Prior for beta
+  tau0 = 1/sigma02
+  for(j in 1:8){
+  beta[j]~dnorm(mu0,tau0)
+  }
+  
+  # Likelihood
+  for (i in 1:N) {
+    career[i] ~ dnorm(mu[i], tau)
+    mu[i] <- beta[1] + beta[2] * teaching[i] + beta[3] * feedback[i] +
+             beta[4] * staff_ratio[i] + beta[5] * entry[i] +
+             beta[6] * added[i] + beta[7] * continuation[i] + beta[8] * total[i]
+  }
+  
+}
+"
+```
 
+```{r}
+# hyperparameter for the betas and tau
+mu0 = 0; sigma02 = 1000; a = 0.1; b = 0.1
 
+data_jags <- list(
+  N = nrow(newdata),
+  career = newdata$career_after_15_month,
+  teaching = as.vector(scale(newdata$satisfied_teaching)),
+  feedback = as.vector(scale(newdata$satisfied_feedback)),
+  staff_ratio = as.vector(scale(newdata$students_staff_ratio)),
+  entry = as.vector(scale(newdata$avg_entry_tariff)),
+  added = as.vector(scale(newdata$added_value)),
+  continuation = as.vector(scale(newdata$continuation)),
+  total = as.vector(scale(newdata$Total)),
+  mu0 = mu0,
+  sigma02 = sigma02,
+  a = a,
+  b = b
+)
+```
 
+```{r}
+# compile the model
+model.jags = jags.model(textConnection(model_string), n.chains = 3, data = data_jags)
+```
+```{r}
+update(model.jags, 10000, progress.bar = "none")
+res = coda.samples(model.jags, variable.names = c("beta", "sigma2"), n.iter = 50000, 
+                   thin = 100, progress.bar = "none")
+summary(res)
+```
 
+Plot the results to check for convergence
+Check for convergence before looking at posterior dist'n summaries
+```{r}
+par(mfrow = c(2, 4))
+for (i in 1:8) {
+  param_name <- paste0("beta[", i, "]")
+  plot(res[, param_name], main = param_name)
+}
+```
+Evaluate autocorrelation functions
+```{r}
+par(mfrow=c(1,3))
+acf(res[[1]][,"beta[1]"],lag.max=100)
+acf(res[[1]][,"beta[2]"],lag.max=100)
+acf(res[[1]][,"sigma2"],lag.max=100)
+```
 
+Compute the Gelman-Rubin statistic
+```{r}
+gelman.diag(res)
+```
 
+Now, consider the robustify the regression, the effects of extreme observations or “outliers” on regressing results can be diminished by using a t
+ distribution for the observations. 
+ 
+```{r}
+model_string_robust <- "
+model {
+  # Prior for the precision
+  tau~dgamma(a, b)
+  
+  # Compute the variance
+  sigma2 = 1/tau
 
+  # Prior for beta
+  tau0 = 1/sigma02
+  for(j in 1:8){
+  beta[j]~dnorm(mu0,tau0)
+  }
+  
+  # Likelihood
+  for (i in 1:N) {
+    career[i] ~ dt(mu[i], tau, df)
+    mu[i] <- beta[1] + beta[2] * teaching[i] + beta[3] * feedback[i] +
+             beta[4] * staff_ratio[i] + beta[5] * entry[i] +
+             beta[6] * added[i] + beta[7] * continuation[i] + beta[8] * total[i]
+  }
+  
+}
+"
+
+# hyperparameter for the betas and tau
+mu0 = 0; sigma02 = 1000; a = 0.1; b = 0.1; df = 9
+
+data_jags_robust <- list(
+  N = nrow(newdata),
+  career = newdata$career_after_15_month,
+  teaching = as.vector(scale(newdata$satisfied_teaching)),
+  feedback = as.vector(scale(newdata$satisfied_feedback)),
+  staff_ratio = as.vector(scale(newdata$students_staff_ratio)),
+  entry = as.vector(scale(newdata$avg_entry_tariff)),
+  added = as.vector(scale(newdata$added_value)),
+  continuation = as.vector(scale(newdata$continuation)),
+  total = as.vector(scale(newdata$Total)),
+  mu0 = mu0,
+  sigma02 = sigma02,
+  a = a,
+  b = b,
+  df = df
+)
+
+model.robust <- jags.model(textConnection(model_string_robust), n.chains = 3, data = data_jags_robust)
+```
+ 
+```{r}
+update(model.robust, n.iter = 10000)
+res.sample.robust <- coda.samples(model.robust, variable.names = c("beta", "sigma2"), n.iter = 50000,
+                   thin = 100, progress.bar = "none")
+```
+
+```{r}
+par(mfrow = c(2, 4))
+for (i in 1:8) {
+  param_name <- paste0("beta[", i, "]")
+  plot(res.sample.robust[, param_name], main = param_name)
+}
+```
+
+```{r}
+summary(res.sample.robust)
+```
 
 
 
