@@ -27,6 +27,7 @@ print(c(mean(y), sd(y)))
 ```
 
 Clean the data, delete all NAs and unrelated rows:
+
 ```{r Data clean}
 #install.packages("dplyr")
 library(dplyr)
@@ -61,9 +62,11 @@ newdata$ethnic_group <- as.factor(newdata$ethnic_group)
 
 newdata <- newdata %>%
   select(-White.ethnic.group, -Black.ethnic.group, -Asian.ethnic.group, -Mixed.ethnic.group, -Other.ethnic.group, -Men, -Women)
+
 ```
 
 Try to fit the linear modal for all variable:
+
 ```{r Linear Model}
 names(newdata)
 ```
@@ -72,12 +75,12 @@ names(newdata)
 library(car)
 vif(model1)
 ```
+
 ```{r}
-new_model <- lm(career_after_15_month ~ . - INSTITUTION_CODE, data = newdata)
+new_model <- lm(career_after_15_month ~ . - INSTITUTION_CODE, data = newdata_scale)
 vif(new_model)
 step(new_model)
 ```
-
 
 ```{r}
 final.model <- lm(formula = career_after_15_month ~ satisfied_teaching + satisfied_feedback + 
@@ -88,6 +91,7 @@ plot(final.model)
 ```
 
 Bayesian:
+
 ```{r}
 library(rjags)
 ```
@@ -121,7 +125,7 @@ model {
 
 ```{r}
 # hyperparameter for the betas and tau
-mu0 = 0; sigma02 = 1000; a = 0.1; b = 0.1
+mu0 = 0; sigma02 = 10; a = 0.1; b = 0.1
 
 data_jags <- list(
   N = nrow(newdata),
@@ -144,15 +148,16 @@ data_jags <- list(
 # compile the model
 model.jags = jags.model(textConnection(model_string), n.chains = 3, data = data_jags)
 ```
+
 ```{r}
 update(model.jags, 10000, progress.bar = "none")
-res = coda.samples(model.jags, variable.names = c("beta", "sigma2"), n.iter = 50000, 
-                   thin = 100, progress.bar = "none")
+res = coda.samples(model.jags, variable.names = c("beta", "sigma2"), n.iter = 25000, 
+               thin = 5   , progress.bar = "none")
 summary(res)
 ```
 
-Plot the results to check for convergence
-Check for convergence before looking at posterior dist'n summaries
+Plot the results to check for convergence Check for convergence before looking at posterior dist'n summaries
+
 ```{r}
 par(mfrow = c(2, 4))
 for (i in 1:8) {
@@ -160,7 +165,9 @@ for (i in 1:8) {
   plot(res[, param_name], main = param_name)
 }
 ```
+
 Evaluate autocorrelation functions
+
 ```{r}
 par(mfrow=c(1,3))
 acf(res[[1]][,"beta[1]"],lag.max=100)
@@ -169,13 +176,13 @@ acf(res[[1]][,"sigma2"],lag.max=100)
 ```
 
 Compute the Gelman-Rubin statistic
+
 ```{r}
 gelman.diag(res)
 ```
 
-Now, consider the robustify the regression, the effects of extreme observations or “outliers” on regressing results can be diminished by using a t
- distribution for the observations. 
- 
+Now, consider the robustify the regression, the effects of extreme observations or “outliers” on regressing results can be diminished by using a t distribution for the observations.
+
 ```{r}
 model_string_robust <- "
 model {
@@ -203,7 +210,7 @@ model {
 "
 
 # hyperparameter for the betas and tau
-mu0 = 0; sigma02 = 1000; a = 0.1; b = 0.1; df = 9
+mu0 = 0; sigma02 = 10; a = 0.1; b = 0.1; df = 9
 
 data_jags_robust <- list(
   N = nrow(newdata),
@@ -224,12 +231,24 @@ data_jags_robust <- list(
 
 model.robust <- jags.model(textConnection(model_string_robust), n.chains = 3, data = data_jags_robust)
 ```
- 
+
 ```{r}
 update(model.robust, n.iter = 10000)
-res.sample.robust <- coda.samples(model.robust, variable.names = c("beta", "sigma2"), n.iter = 50000,
-                   thin = 100, progress.bar = "none")
+res.sample.robust <- coda.samples(model.robust, variable.names = c("beta", "sigma2"), n.iter = 25000,
+                thin = 50,   progress.bar = "none")
 ```
+
+
+```{r}
+par(mfrow=c(1,3))
+acf(res.sample.robust[[1]][,"beta[1]"],lag.max=100)
+acf(res.sample.robust[[1]][,"beta[2]"],lag.max=100)
+acf(res.sample.robust[[1]][,"beta[3]"],lag.max=100)
+acf(res.sample.robust[[1]][,"beta[4]"],lag.max=100)
+acf(res.sample.robust[[1]][,"sigma2"],lag.max=100)
+```
+
+
 
 ```{r}
 par(mfrow = c(2, 4))
@@ -242,21 +261,3 @@ for (i in 1:8) {
 ```{r}
 summary(res.sample.robust)
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
