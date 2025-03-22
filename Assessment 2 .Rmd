@@ -65,19 +65,27 @@ newdata <- newdata %>%
 
 ```
 
+```{r}
+names(newdata)
+summary(newdata)
+```
+```{r}
+newdata_scale <- data.table::copy(newdata)
+newdata_scale$satisfied_teaching <- scale(newdata_scale$satisfied_teaching)
+newdata_scale$satisfied_feedback <- scale(newdata_scale$satisfied_feedback)
+newdata_scale$students_staff_ratio <- scale(newdata_scale$students_staff_ratio)
+newdata_scale$spent_per_student <- scale(newdata_scale$spent_per_student)
+newdata_scale$avg_entry_tariff <- scale(newdata_scale$avg_entry_tariff)
+newdata_scale$added_value <- scale(newdata_scale$added_value)
+newdata_scale$career_after_15_month <- scale(newdata_scale$career_after_15_month)
+newdata_scale$continuation <- scale(newdata_scale$continuation)
+newdata_scale$Total <- scale(newdata_scale$Total)
+```
+
 Try to fit the linear modal for all variable:
 
-```{r Linear Model}
-names(newdata)
-```
-
 ```{r}
-library(car)
-vif(model1)
-```
-
-```{r}
-new_model <- lm(career_after_15_month ~ . - INSTITUTION_CODE, data = newdata_scale)
+new_model <- lm(career_after_15_month ~ . - INSTITUTION_CODE, data = newdata)
 vif(new_model)
 step(new_model)
 ```
@@ -89,6 +97,7 @@ final.model <- lm(formula = career_after_15_month ~ satisfied_teaching + satisfi
 summary(final.model)
 plot(final.model)
 ```
+
 
 Bayesian:
 
@@ -127,16 +136,31 @@ model {
 # hyperparameter for the betas and tau
 mu0 = 0; sigma02 = 10; a = 0.1; b = 0.1
 
+# data_jags <- list(
+#   N = nrow(newdata),
+#   career = newdata$career_after_15_month,
+#   teaching = as.vector(scale(newdata$satisfied_teaching)),
+#   feedback = as.vector(scale(newdata$satisfied_feedback)),
+#   staff_ratio = as.vector(scale(newdata$students_staff_ratio)),
+#   entry = as.vector(scale(newdata$avg_entry_tariff)),
+#   added = as.vector(scale(newdata$added_value)),
+#   continuation = as.vector(scale(newdata$continuation)),
+#   total = as.vector(scale(newdata$Total)),
+#   mu0 = mu0,
+#   sigma02 = sigma02,
+#   a = a,
+#   b = b
+# )
 data_jags <- list(
   N = nrow(newdata),
   career = newdata$career_after_15_month,
-  teaching = as.vector(scale(newdata$satisfied_teaching)),
-  feedback = as.vector(scale(newdata$satisfied_feedback)),
-  staff_ratio = as.vector(scale(newdata$students_staff_ratio)),
-  entry = as.vector(scale(newdata$avg_entry_tariff)),
-  added = as.vector(scale(newdata$added_value)),
-  continuation = as.vector(scale(newdata$continuation)),
-  total = as.vector(scale(newdata$Total)),
+  teaching = newdata$satisfied_teaching-mean(newdata$satisfied_teaching),
+  feedback = newdata$satisfied_feedback-mean(newdata$satisfied_feedback),
+  staff_ratio = newdata$students_staff_ratio-mean(newdata$students_staff_ratio),
+  entry = newdata$avg_entry_tariff-mean(newdata$avg_entry_tariff),
+  added = newdata$added_value-mean(newdata$added_value),
+  continuation = newdata$continuation-mean(newdata$continuation),
+  total = newdata$Total-mean(newdata$Total),
   mu0 = mu0,
   sigma02 = sigma02,
   a = a,
@@ -162,7 +186,7 @@ Plot the results to check for convergence Check for convergence before looking a
 par(mfrow = c(2, 4))
 for (i in 1:8) {
   param_name <- paste0("beta[", i, "]")
-  plot(res[, param_name], main = param_name)
+  plot(res[, param_name], main = "Estimate of beta")
 }
 ```
 
@@ -210,18 +234,35 @@ model {
 "
 
 # hyperparameter for the betas and tau
-mu0 = 0; sigma02 = 10; a = 0.1; b = 0.1; df = 9
+mu0 = 0; sigma02 = 9; a = 0.1; b = 0.1; df = 9
+
+# data_jags_robust <- list(
+#   N = nrow(newdata),
+#   career = newdata$career_after_15_month,
+#   teaching = as.vector(scale(newdata$satisfied_teaching)),
+#   feedback = as.vector(scale(newdata$satisfied_feedback)),
+#   staff_ratio = as.vector(scale(newdata$students_staff_ratio)),
+#   entry = as.vector(scale(newdata$avg_entry_tariff)),
+#   added = as.vector(scale(newdata$added_value)),
+#   continuation = as.vector(scale(newdata$continuation)),
+#   total = as.vector(scale(newdata$Total)),
+#   mu0 = mu0,
+#   sigma02 = sigma02,
+#   a = a,
+#   b = b,
+#   df = df
+# )
 
 data_jags_robust <- list(
   N = nrow(newdata),
   career = newdata$career_after_15_month,
-  teaching = as.vector(scale(newdata$satisfied_teaching)),
-  feedback = as.vector(scale(newdata$satisfied_feedback)),
-  staff_ratio = as.vector(scale(newdata$students_staff_ratio)),
-  entry = as.vector(scale(newdata$avg_entry_tariff)),
-  added = as.vector(scale(newdata$added_value)),
-  continuation = as.vector(scale(newdata$continuation)),
-  total = as.vector(scale(newdata$Total)),
+  teaching = newdata$satisfied_teaching-mean(newdata$satisfied_teaching),
+  feedback = newdata$satisfied_feedback-mean(newdata$satisfied_feedback),
+  staff_ratio = newdata$students_staff_ratio-mean(newdata$students_staff_ratio),
+  entry = newdata$avg_entry_tariff-mean(newdata$avg_entry_tariff),
+  added = newdata$added_value-mean(newdata$added_value),
+  continuation = newdata$continuation-mean(newdata$continuation),
+  total = newdata$Total-mean(newdata$Total),
   mu0 = mu0,
   sigma02 = sigma02,
   a = a,
@@ -234,8 +275,7 @@ model.robust <- jags.model(textConnection(model_string_robust), n.chains = 3, da
 
 ```{r}
 update(model.robust, n.iter = 10000)
-res.sample.robust <- coda.samples(model.robust, variable.names = c("beta", "sigma2"), n.iter = 25000,
-                thin = 50,   progress.bar = "none")
+res.sample.robust <- coda.samples(model.robust, variable.names = c("beta", "sigma2"), n.iter = 25000,thin = 5, progress.bar = "none")
 ```
 
 
@@ -247,8 +287,6 @@ acf(res.sample.robust[[1]][,"beta[3]"],lag.max=100)
 acf(res.sample.robust[[1]][,"beta[4]"],lag.max=100)
 acf(res.sample.robust[[1]][,"sigma2"],lag.max=100)
 ```
-
-
 
 ```{r}
 par(mfrow = c(2, 4))
